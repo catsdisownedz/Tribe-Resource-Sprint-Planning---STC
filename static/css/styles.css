@@ -1,0 +1,44 @@
+/* ========= Base site styles ========= */
+:root {
+    --muted-fg: #6c757d;
+    --dimmed-fg: #9aa0a6;
+    --dimmed-bg: #f1f3f4;
+  }
+  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+  .table thead th { white-space: nowrap; }
+  
+  /* ========= Sprint checkbox row styling ========= */
+  .sprint-cell {
+    vertical-align: middle;
+    text-align: center;
+    padding: 0.35rem 0.5rem;
+  }
+  
+  /* ========= Shared: visually dim + block interaction ========= */
+  .sprint-disabled {
+    opacity: 0.5;                  /* dim it */
+    pointer-events: none;          /* ignore clicks on the label */
+  }
+  
+  .sprint-disabled input[type="checkbox"] {
+    pointer-events: none;          /* ignore clicks on the box */
+  }
+  
+  input[type="checkbox"][disabled] + label,
+  .sprint-disabled label {
+    color: var(--dimmed-fg);
+  }
+  
+  /* Optional: a subtle background cue for disabled cells */
+  .sprint-cell.sprint-disabled {
+    background: var(--dimmed-bg);
+    border-radius: 6px;
+  }
+  
+  /* Tooltip-ish title cursor hint */
+  [title] { cursor: help; }
+  
+  /* hard-disable dimmed sprint cells */
+.dim { opacity: .4; pointer-events: none; }
+
+.sprint-disabled { opacity: 0.5; pointer-events: none; }

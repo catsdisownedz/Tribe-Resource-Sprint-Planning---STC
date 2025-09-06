@@ -1,0 +1,113 @@
+<!-- templates/index.html -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Tribe Resource Sprint Planning</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <!-- Fonts & Styles -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/choices.js/public/assets/styles/choices.min.css">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+  <style>
+    body { font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
+  </style>
+</head>
+<body>
+<div class="container py-4">
+  <h1 class="mb-3">Tribe Resource Sprint Planning</h1>
+  <a href="/admin/login" class="btn btn-outline-dark btn-sm"
+   style="position:absolute; top:16px; right:16px;">
+  Login as admin
+  </a>
+
+  <!-- Tabs -->
+  <ul class="nav nav-tabs" id="tabs" role="tablist">
+    <li class="nav-item" role="presentation">
+      <button class="nav-link active" id="book-tab" data-bs-toggle="tab" data-bs-target="#book" type="button" role="tab" aria-controls="book" aria-selected="true">Booking</button>
+    </li>
+    <li class="nav-item" role="presentation">
+      <button class="nav-link" id="view-tab" data-bs-toggle="tab" data-bs-target="#view" type="button" role="tab" aria-controls="view" aria-selected="false">View Bookings</button>
+    </li>
+  </ul>
+
+  <div class="tab-content border border-top-0 p-3 rounded-bottom">
+    <!-- Booking -->
+    <div class="tab-pane fade show active" id="book" role="tabpanel" aria-labelledby="book-tab">
+      <!-- Filters -->
+      <div class="row g-2">
+        <div class="col-sm-2"><input id="bTribe" class="form-control" placeholder="Filter tribe"></div>
+        <div class="col-sm-2"><input id="bApp" class="form-control" placeholder="Filter app"></div>
+        <div class="col-sm-2"><input id="bRole" class="form-control" placeholder="Filter role"></div>
+        <div class="col-sm-2"><input id="bResource" class="form-control" placeholder="Filter resource"></div>
+        <div class="col-sm-2"><input id="bType" class="form-control" placeholder="Filter type"></div>
+      </div>
+      
+
+      <!-- Table -->
+      <div class="table-responsive mt-3" style="max-height: 60vh; overflow: auto;">
+        <table class="table table-sm align-middle">
+          <thead id="tempHead" class="table-light">
+            <tr>
+              <th>Tribe</th>
+              <th>Type</th>
+              <th>App</th>
+              <th>Resource</th>
+              <th>Role</th>
+              <th class="text-center">Reserved</th>
+              <th class="text-end">Select</th>
+            </tr>
+          </thead>               
+          <tbody id="tempBody"></tbody>
+        </table>
+      </div>
+
+      <div class="d-flex justify-content-end mt-3">
+        <button id="selectOk" class="btn btn-primary" disabled>OK</button>
+      </div>
+    </div>
+
+    <!-- View Bookings -->
+    <div class="tab-pane fade" id="view" role="tabpanel" aria-labelledby="view-tab">
+      <!-- Filters -->
+      <div class="row g-2">
+        <div class="col-sm-2"><input id="fTribe" class="form-control" placeholder="Filter tribe"></div>
+        <div class="col-sm-2"><input id="fApp" class="form-control" placeholder="Filter app"></div>
+        <div class="col-sm-2"><input id="fRole" class="form-control" placeholder="Filter role"></div>
+        <div class="col-sm-2"><input id="fResource" class="form-control" placeholder="Filter resource"></div>
+        <div class="col-sm-2"><input id="fType" class="form-control" placeholder="Filter type"></div>
+        <div class="col-sm-2 d-grid"><button id="exportBtn" class="btn btn-outline-secondary">Download Excel</button></div>
+      </div>
+      
+
+      <!-- Table -->
+      <div class="table-responsive mt-3" style="max-height: 60vh; overflow: auto;">
+        <table class="table table-sm align-middle">
+          <thead class="table-light">
+            <tr>
+              <th>Tribe</th>
+              <th>App</th>
+              <th>Role</th>
+              <th>Resource</th>
+              <th>Type</th>
+              <th>Sprints</th>
+              <th style="width: 1%;"></th>
+              <th class="text-end" style="width: 1%;"></th>
+            </tr>
+          </thead>          
+          <tbody id="assignBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Scripts -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/choices.js/public/assets/scripts/choices.min.js"></script>
+<script src="{{ url_for('static', filename='js/booking.js') }}"></script>
+<script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>
