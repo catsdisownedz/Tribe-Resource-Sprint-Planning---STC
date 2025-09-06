@@ -274,6 +274,7 @@ def book_temp(temp_id):
         SELECT ta.id AS temp_id,
                ta.tribe_name,
                ta.assign_type,
+               ta.app_name,
                ta.resource_id,
                r.name AS resource_name,
                r.role AS resource_role
@@ -360,32 +361,31 @@ def book_temp(temp_id):
 
         # ONE statement: insert-or-update on (quarter, tribe, resource, role)
     sql = """
-    INSERT INTO master_assignments (
-        quarter_id, tribe_name, app_name, resource_name, role, assignment_type,
-        s1, s2, s3, s4, s5, s6, edited, updated_at
-    )
-    VALUES (
-        :qid, :tname, :appname, :rname, :rrole, :atype,
-        :s1, :s2, :s3, :s4, :s5, :s6, TRUE, NOW()
-    )
-    ON CONFLICT (quarter_id, tribe_name, resource_name, role)
-    DO UPDATE SET
-        assignment_type = EXCLUDED.assignment_type,  -- keep latest type
-        s1 = COALESCE(master_assignments.s1, FALSE) OR COALESCE(EXCLUDED.s1, FALSE),
-        s2 = COALESCE(master_assignments.s2, FALSE) OR COALESCE(EXCLUDED.s2, FALSE),
-        s3 = COALESCE(master_assignments.s3, FALSE) OR COALESCE(EXCLUDED.s3, FALSE),
-        s4 = COALESCE(master_assignments.s4, FALSE) OR COALESCE(EXCLUDED.s4, FALSE),
-        s5 = COALESCE(master_assignments.s5, FALSE) OR COALESCE(EXCLUDED.s5, FALSE),
-        s6 = COALESCE(master_assignments.s6, FALSE) OR COALESCE(EXCLUDED.s6, FALSE),
-        edited = TRUE,
-        updated_at = NOW();
+            INSERT INTO master_assignments (
+            quarter_id, tribe_name, app_name, resource_name, role, assignment_type,
+            s1, s2, s3, s4, s5, s6, edited, updated_at
+        )
+        VALUES (
+            :qid, :tname, :appname, :rname, :rrole, :atype,
+            :s1, :s2, :s3, :s4, :s5, :s6, FALSE, NOW()
+        )
+        ON CONFLICT (quarter_id, tribe_name, resource_name, role)
+        DO UPDATE SET
+            assignment_type = EXCLUDED.assignment_type,
+            s1 = COALESCE(master_assignments.s1, FALSE) OR COALESCE(EXCLUDED.s1, FALSE),
+            s2 = COALESCE(master_assignments.s2, FALSE) OR COALESCE(EXCLUDED.s2, FALSE),
+            s3 = COALESCE(master_assignments.s3, FALSE) OR COALESCE(EXCLUDED.s3, FALSE),
+            s4 = COALESCE(master_assignments.s4, FALSE) OR COALESCE(EXCLUDED.s4, FALSE),
+            s5 = COALESCE(master_assignments.s5, FALSE) OR COALESCE(EXCLUDED.s5, FALSE),
+            s6 = COALESCE(master_assignments.s6, FALSE) OR COALESCE(EXCLUDED.s6, FALSE),
+            updated_at = NOW();
     """
 
 
     execute(sql, **{
         "qid": qid,
         "tname": tribe,
-        "appname": None,  # or your temp/app name
+        "appname": temp["app_name"],
         "rname": resource,
         "rrole": role,
         "atype": assign_type,  # 'Shared' or 'Dedicated'

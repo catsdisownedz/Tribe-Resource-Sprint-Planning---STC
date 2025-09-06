@@ -497,7 +497,10 @@ def create_booking():
 
     # Resolve resource_name and assign_type from temp_assignments for this tribe/resource
     temp = fetch_one("""
-      SELECT r.name AS resource_name, ta.assign_type
+      SELECT r.name AS resource_name,
+       r.role AS resource_role,
+       ta.assign_type,
+       ta.app_name
       FROM temp_assignments ta
       JOIN resources r ON r.id = ta.resource_id
       JOIN tribes    t ON t.id = ta.tribe_id
@@ -575,7 +578,14 @@ def create_booking():
       LIMIT 1
     """, qid=qid, tname=tribe_name, rname=resource_name)
 
-    params = { "qid": qid, "tname": tribe_name, "rname": resource_name, **future }
+    params = {
+        "qid": qid,
+        "tname": tribe_name,
+        "rname": resource_name,
+        "rrole": temp["resource_role"],
+        "aname": temp["app_name"],
+        **future
+    }
 
     if existing:
         execute("""
@@ -589,9 +599,10 @@ def create_booking():
         execute("""
           INSERT INTO master_assignments
             (quarter_id, tribe_name, app_name, resource_name, role, assignment_type,
-             s1,s2,s3,s4,s5,s6, updated_at)
-          SELECT :qid, :tname, '', :rname, '', :atype,
-                 :s1,:s2,:s3,:s4,:s5,:s6, TRUE, NOW()
+            s1, s2, s3, s4, s5, s6, edited, updated_at)
+          VALUES
+            (:qid, :tname, :aname, :rname, :rrole, :atype,
+            :s1, :s2, :s3, :s4, :s5, :s6, FALSE, NOW())
         """, **params, atype=assign_type)
         newrow = fetch_one("""
           SELECT id FROM master_assignments
