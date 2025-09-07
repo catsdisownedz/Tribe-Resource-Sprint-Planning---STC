@@ -11,6 +11,16 @@
   };
   if (!els.tableBody) return; // not on this page
 
+
+    // ---- Keep "Book resource" grey when disabled, purple when enabled ----
+    function styleSelectOk(){
+      const btn = els.ok;
+      if (!btn) return;
+      const enabled = !btn.disabled;
+      btn.classList.toggle('btn-primary', enabled);
+      btn.classList.toggle('btn-outline-secondary', !enabled);
+    }
+  
   // ----- Small helpers -----
   const debounce = (fn, ms=250) => {
     let t = null;
@@ -40,6 +50,7 @@
     if (!Array.isArray(items) || items.length === 0) {
       els.tableBody.innerHTML = `<tr><td colspan="7" class="text-center py-3 text-muted">No matching rows</td></tr>`;
       els.ok?.setAttribute('disabled', 'true');
+      styleSelectOk();     
       return;
     }
 
@@ -93,12 +104,14 @@
     els.tableBody.querySelectorAll('tr').forEach(r => r.classList.remove('table-active'));
     tr.classList.add('table-active');
     els.ok?.removeAttribute('disabled');
+    styleSelectOk();     
   });
 
   const clearSelection = () => {
     els.tableBody.querySelectorAll('tr.table-active')
       .forEach(x => x.classList.remove('table-active'));
     els.ok?.setAttribute('disabled', 'true');
+    styleSelectOk();  
   };
   
 
@@ -110,6 +123,7 @@
     tr.classList.add('table-active');
     // enable CTA
     if (els.ok) els.ok.disabled = false;
+    styleSelectOk();  
   });
   // double click row → navigate
   els.tableBody.addEventListener('dblclick', (e) => {
@@ -140,6 +154,7 @@
 
   // ----- Initial load (so the first tab shows data immediately) -----
   // This ensures you DON'T need to switch tabs 2–3 times.
+  styleSelectOk();  
   load({source: 'dom-ready'});
 })();
 

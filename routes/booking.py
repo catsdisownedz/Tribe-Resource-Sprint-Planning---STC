@@ -70,13 +70,23 @@ def temp_assignments_list():
 def booking_detail_page(temp_id):
     # Compute real BOOKED_SPRINTS and RESERVED_LIMIT for initial render
     qid = get_current_quarter_id()
+    
+    
+    row = fetch_one("""
+        SELECT COALESCE(name, code) AS title
+        FROM quarters
+        WHERE is_current = TRUE
+        LIMIT 1
+    """)
+    current = (row or {}).get("title") or ""
+
     if not qid:
-        # Fallback to safe defaults if no quarter configured
         return render_template(
             "booking_detail.html",
             temp_id=temp_id,
             booked_sprints=[],
             reserved_sprints=0,
+            current_quarter=current,   # <-- add this
         )
 
     temp = fetch_one(
@@ -165,6 +175,7 @@ def booking_detail_page(temp_id):
         booked_sprints=booked_sprints,
         reserved_sprints=reserved,
         booked_by_tribe=booked_by_tribe,
+        current_quarter=current,       # <-- add this
     )
 
 

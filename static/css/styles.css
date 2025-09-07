@@ -42,3 +42,17 @@
 .dim { opacity: .4; pointer-events: none; }
 
 .sprint-disabled { opacity: 0.5; pointer-events: none; }
+
+/* Footer copyright */
+.site-footer{
+  position: fixed;
+  left: 0; right: 0; bottom: 10px;
+  text-align: center;
+  font-weight: 600;
+  font-size: 13px;
+  color: #b28cff;            /* light purple */
+  opacity: .9;
+  z-index: 1001;             /* above the dark overlay */
+  pointer-events: none;      /* doesn’t block clicks */
+  text-shadow: 0 0 1px rgba(0,0,0,.15);
+}
