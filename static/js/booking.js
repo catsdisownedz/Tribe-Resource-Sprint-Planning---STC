@@ -53,9 +53,6 @@
           <td>${r.resource_name ?? ''}</td>
           <td>${r.role ?? ''}</td>
           <td class="text-center">${reserved}</td>
-          <td class="text-end">
-            <button class="btn btn-sm btn-outline-primary act-select">Select</button>
-          </td>
         </tr>
       `;
     }).join('');
@@ -92,20 +89,28 @@
   els.tableBody.addEventListener('click', (e) => {
     const tr = e.target.closest('tr');
     if (!tr) return;
-
-    // button click navigates immediately
-    if (e.target.classList.contains('act-select')) {
-      const id = tr.getAttribute('data-id');
-      if (id) window.location.href = `/booking/${id}`;
-      return;
-    }
-
     // otherwise just mark selection
     els.tableBody.querySelectorAll('tr').forEach(r => r.classList.remove('table-active'));
     tr.classList.add('table-active');
     els.ok?.removeAttribute('disabled');
   });
 
+  const clearSelection = () => {
+    els.tableBody.querySelectorAll('tr.table-active')
+      .forEach(x => x.classList.remove('table-active'));
+    els.ok?.setAttribute('disabled', 'true');
+  };
+  
+
+  els.tableBody.addEventListener('click', (e) => {
+    const tr = e.target.closest('tr[data-id]');
+    if (!tr) return;
+    // toggle active row
+    els.tableBody.querySelectorAll('tr.table-active').forEach(x => x.classList.remove('table-active'));
+    tr.classList.add('table-active');
+    // enable CTA
+    if (els.ok) els.ok.disabled = false;
+  });
   // double click row → navigate
   els.tableBody.addEventListener('dblclick', (e) => {
     const tr = e.target.closest('tr');
@@ -120,6 +125,17 @@
     if (!tr) return;
     const id = tr.getAttribute('data-id');
     if (id) window.location.href = `/booking/${id}`;
+  });
+
+
+    // Click anywhere outside the table -> clear selection
+  document.addEventListener('click', (e) => {
+    const table = els.tableBody.closest('table');
+    if (!table) return;
+    const insideTable = table.contains(e.target);   // true for headers, filters, rows
+    if (!insideTable) {
+      clearSelection();
+    }
   });
 
   // ----- Initial load (so the first tab shows data immediately) -----

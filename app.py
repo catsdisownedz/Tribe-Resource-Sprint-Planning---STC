@@ -1,16 +1,35 @@
 # app.py
-import os, time, webbrowser
+import os, time, webbrowser, sys, threading
 from flask import Flask, render_template, g, request, Blueprint
 from dotenv import load_dotenv
 from time import perf_counter
 from db import fetch_one
 
 load_dotenv(override=True)
-# app.py
-import threading
+
+# --- Resolve base path for templates/static (works in dev and PyInstaller) ---
+def _base_path():
+    """
+    Returns the folder where bundled assets (templates/static) live.
+    - dev (python app.py): project directory
+    - PyInstaller onefile: sys._MEIPASS (temp extraction dir)
+    - PyInstaller onedir: directory next to the executable
+    """
+    if getattr(sys, "frozen", False):
+        return getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
+    return os.path.abspath(os.path.dirname(__file__))
 
 def create_app():
-    app = Flask(__name__, template_folder="templates", static_folder="static")
+    base = _base_path()
+    template_dir = os.path.join(base, "templates")
+    static_dir   = os.path.join(base, "static")
+
+    app = Flask(
+        __name__,
+        template_folder=template_dir,
+        static_folder=static_dir,
+        static_url_path="/static",
+    )
     app.config["SECRET_KEY"] = os.getenv("FLASK_SECRET", "dev-secret")
 
     # --- non-blocking schema warm ---
@@ -38,8 +57,6 @@ def create_app():
             pass
         return resp
 
-    # blueprints (unchanged) ...
-
     # Blueprints
     from routes.api import bp as api_bp
     from routes.admin import bp as admin_bp
@@ -47,7 +64,6 @@ def create_app():
     app.register_blueprint(api_bp, url_prefix="/api")
     app.register_blueprint(admin_bp, url_prefix="/admin")
     app.register_blueprint(booking_bp)
-
 
     @app.get("/")
     def index():
@@ -64,7 +80,6 @@ def create_app():
     return app
 
 
-
 if __name__ == "__main__":
     app = create_app()
     host = os.getenv("HOST", "127.0.0.1")
@@ -78,8 +93,10 @@ if __name__ == "__main__":
         except Exception:
             pass
 
-    # only run once (not in reloader child process)
-    if os.environ.get("WERKZEUG_RUN_MAIN") == "true":
+     # Detect frozen exe (PyInstaller)
+    is_frozen = getattr(sys, "frozen", False)
+
+    if os.environ.get("WERKZEUG_RUN_MAIN") == "true" or not app.debug:
         threading.Thread(target=_open, daemon=True).start()
 
-    app.run(host=host, port=port, debug=True)
+    app.run(host=host, port=port, debug=(not is_frozen))
