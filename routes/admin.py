@@ -1,13 +1,18 @@
 # routes/admin.py
 # Admin dashboard: login, set current quarter, upload Excel, normalize + load into quarter & permanent tables.
 from flask import Blueprint, render_template, request, jsonify, session, redirect, url_for
-import os, re
+import os, re, threading, secrets
 import pandas as pd
 from db import fetch_one, fetch_all, execute, get_current_qid
 
 ADMIN_PW = (os.getenv('ADMIN_PASSWORD') or '').strip()
 bp = Blueprint("admin", __name__, template_folder="../templates")
 SCHEMA_WARMED = False
+
+# ------------------------------
+# In-memory progress registry for progressive uploads
+# ------------------------------
+_PROGRESS = {}  # job_id -> {"percent": int, "status": "running|done|error", "rows":int, "target_quarter_id":int, "error":str}
 
 
 # ---------- schema helpers ----------
@@ -97,21 +102,17 @@ def _ensure_min_schema():
                 pass
 
     # --- normalize legacy column names in temp_assignments ---
-    # resource_name: rename legacy "resource" -> "resource_name" if needed
     if not _has_col("temp_assignments", "resource_name"):
         if _has_col("temp_assignments", "resource"):
             execute("ALTER TABLE temp_assignments RENAME COLUMN resource TO resource_name")
         else:
             execute("ALTER TABLE temp_assignments ADD COLUMN resource_name TEXT")
-    # role (ensure present)
     if not _has_col("temp_assignments", "role"):
         execute("ALTER TABLE temp_assignments ADD COLUMN role TEXT")
 
-    # assign_type: ensure column and check
     if not _has_col("temp_assignments", "assign_type"):
         execute("ALTER TABLE temp_assignments ADD COLUMN assign_type TEXT")
     try:
-        # add a check if none exists
         execute("""
         DO $$
         BEGIN
@@ -131,7 +132,6 @@ def _ensure_min_schema():
     except Exception:
         pass
 
-    # --- reserved_sprints on temp_assignments + history mirror ---
     if not _has_col("temp_assignments", "reserved_sprints"):
         execute("""
             ALTER TABLE temp_assignments
@@ -161,7 +161,6 @@ def _ensure_min_schema():
             )
         """)
     else:
-        # ensure columns exist
         if not _has_col("history_temp_assignments", "orig_id"):
             execute("ALTER TABLE history_temp_assignments ADD COLUMN orig_id INT")
         if not _has_col("history_temp_assignments", "reserved_sprints"):
@@ -172,9 +171,8 @@ def _ensure_min_schema():
                         CHECK (reserved_sprints >= 0 AND reserved_sprints <= 6)""")
             except Exception:
                 pass
-    
-            # --- Option C: soften FK so history never blocks deletes/truncates of resources ---
-    # Make resource_id nullable (so ON DELETE SET NULL can work and history keeps rows)
+
+    # Make resource_id nullable then ON DELETE SET NULL for history
     try:
         execute("""
         DO $$
@@ -192,8 +190,6 @@ def _ensure_min_schema():
         """)
     except Exception:
         pass
-
-    # Drop any existing FK on history_temp_assignments(resource_id) → resources(id) and add ON DELETE SET NULL
     try:
         execute("""
         DO $$
@@ -214,34 +210,29 @@ def _ensure_min_schema():
             EXECUTE format('ALTER TABLE history_temp_assignments DROP CONSTRAINT %I', conname);
             END IF;
 
-            -- add idempotently
             BEGIN
             ALTER TABLE history_temp_assignments
                 ADD CONSTRAINT hta_resource_id_fkey
                 FOREIGN KEY (resource_id) REFERENCES resources(id) ON DELETE SET NULL;
             EXCEPTION WHEN duplicate_object THEN
-            -- already exists under this name; OK
             END;
         END $$;
         """)
     except Exception:
         pass
 
-    
-        # ----- master_assignments: ensure columns required by API (/api/assignments) -----
+    # ----- master_assignments -----
     if not _has_table("master_assignments"):
         execute("""
             CREATE TABLE IF NOT EXISTS master_assignments (
               id SERIAL PRIMARY KEY,
               quarter_id INT NOT NULL REFERENCES quarters(id) ON DELETE CASCADE,
-              -- denormalized names used by API and history snapshots
               orig_id INT,
               tribe_name TEXT,
               app_name TEXT,
               resource_name TEXT,
               role TEXT,
               assignment_type TEXT,
-              -- six sprints as booleans
               s1 BOOLEAN NOT NULL DEFAULT FALSE,
               s2 BOOLEAN NOT NULL DEFAULT FALSE,
               s3 BOOLEAN NOT NULL DEFAULT FALSE,
@@ -253,7 +244,6 @@ def _ensure_min_schema():
             )
         """)
     else:
-        # Make sure required columns exist (we only ADD if missing; no drops/renames here)
         if not _has_col("history_master_assignments", "orig_id"):
             execute("ALTER TABLE history_master_assignments ADD COLUMN orig_id INT")
         if not _has_col("master_assignments", "quarter_id"):
@@ -267,13 +257,11 @@ def _ensure_min_schema():
         if not _has_col("master_assignments", "role"):
             execute("ALTER TABLE master_assignments ADD COLUMN role TEXT")
 
-        # Normalize assignment type naming if needed
         if not _has_col("master_assignments", "assignment_type") and _has_col("master_assignments", "assign_type"):
             execute("ALTER TABLE master_assignments RENAME COLUMN assign_type TO assignment_type")
         if not _has_col("master_assignments", "assignment_type"):
             execute("ALTER TABLE master_assignments ADD COLUMN assignment_type TEXT")
 
-        # Ensure sprint flags + metadata exist
         for col in ("s1","s2","s3","s4","s5","s6"):
             if not _has_col("master_assignments", col):
                 execute(f"ALTER TABLE master_assignments ADD COLUMN {col} BOOLEAN NOT NULL DEFAULT FALSE")
@@ -282,12 +270,10 @@ def _ensure_min_schema():
         if not _has_col("master_assignments", "updated_at"):
             execute("ALTER TABLE master_assignments ADD COLUMN updated_at TIMESTAMP NOT NULL DEFAULT NOW()")
 
-    # Helpful index
     try:
         execute("CREATE INDEX IF NOT EXISTS idx_master_assignments_qid ON master_assignments(quarter_id)")
     except Exception:
         pass
-
 
 
 # ---------- utils ----------
@@ -303,14 +289,29 @@ def admin_required(fn):
         return fn(*args, **kwargs)
     return wrapper
 
-
 def current_quarter_id():
     qid = get_current_qid()
     if not qid:
         raise RuntimeError("No current quarter set.")
     return qid
 
-# ---------- pages ----------
+# Tiny progress helper
+def _progress_update(job_id: str|None, percent: int|None=None, status: str|None=None, **extra):
+    if not job_id:
+        return
+    rec = _PROGRESS.get(job_id) or {}
+    if percent is not None:
+        rec["percent"] = max(0, min(100, int(percent)))
+    if status:
+        rec["status"] = status
+    for k, v in extra.items():
+        rec[k] = v
+    _PROGRESS[job_id] = rec
+
+
+# =========================
+# PAGES
+# =========================
 @bp.get("/login")
 def login():
     return render_template("admin.html", page="login", error=None)
@@ -335,7 +336,6 @@ def logout():
 @bp.get("/")
 @admin_required
 def dashboard():
-
     # Build a COALESCE() only from columns that exist
     title_cols = []
     if _has_col("quarters", "code"):
@@ -344,7 +344,6 @@ def dashboard():
         title_cols.append("name")
     if _has_col("quarters", "label"):
         title_cols.append("label")
-
     title_expr = "COALESCE(" + ", ".join(title_cols) + ")" if title_cols else "'(no title)'"
 
     quarters = fetch_all(f"""
@@ -354,6 +353,20 @@ def dashboard():
     """)
     current = next((q for q in quarters if q.get("is_current")), None)
     return render_template("admin.html", page="dashboard", quarters=quarters, current=current)
+
+
+# =========================
+# CURRENT QUARTER APIs
+# (mounted under this blueprint; URL will be /admin/api/current-quarter)
+# =========================
+@bp.get("/api/current-quarter")
+def api_current_quarter():
+    qid = get_current_qid()
+    if not qid:
+        return jsonify({"name": ""})
+    row = fetch_one("SELECT name FROM quarters WHERE id = :id", id=qid)
+    return jsonify({"name": (row or {}).get("name") or ""})
+
 
 @bp.post("/set-quarter")
 @admin_required
@@ -373,11 +386,9 @@ def set_quarter():
     elif _has_col("quarters", "label"):
         qcol = "label"
     else:
-        # create a sane title column if none exists (very edge case)
         execute("ALTER TABLE quarters ADD COLUMN code TEXT")
         qcol = "code"
 
-    # Upsert-like behavior: make the provided quarter current, create if missing.
     row = fetch_one(f"SELECT id FROM quarters WHERE {qcol} = :v LIMIT 1", v=qname)
     if not row:
         execute(f"INSERT INTO quarters({qcol}, is_current, created_at) VALUES (:v, TRUE, NOW())", v=qname)
@@ -386,28 +397,25 @@ def set_quarter():
         execute("UPDATE quarters SET is_current = TRUE WHERE id = :id", id=row["id"])
 
     qid = int(row["id"])
-
-    # ensure only one current
     execute("UPDATE quarters SET is_current = FALSE WHERE id <> :id", id=qid)
-
     return jsonify({"ok": True, "quarter_id": qid, "quarter_name": qname})
 
 
+# =========================
+# VALIDATE (unchanged)
+# =========================
 @bp.post("/upload-validate")
 def upload_validate():
     file = request.files.get("file")
     if not file:
         return jsonify({"ok": False, "error": "No file uploaded"}), 400
 
-    # Load excel/csv
     name = (file.filename or "").lower()
     if name.endswith((".xlsx", ".xls")):
         df = pd.read_excel(file)
     else:
         df = pd.read_csv(file)
 
-    # Normalize columns to the new order you specified
-    # Expected: Tribe, App, Role, Reserved Sprints, Resource
     cols = [c.strip().lower() for c in df.columns]
     rename = {
         "tribe": "tribe",
@@ -427,19 +435,16 @@ def upload_validate():
 
     df = df.rename(columns=colmap)[["tribe","app","role","reserved_sprints","resource"]]
 
-    # Clean
     df["tribe"] = df["tribe"].astype(str).str.strip()
     df["app"] = df["app"].astype(str).str.strip()
     df["role"] = df["role"].astype(str).str.strip()
     df["resource"] = df["resource"].astype(str).str.strip()
     df["reserved_sprints"] = pd.to_numeric(df["reserved_sprints"], errors="coerce").fillna(0).astype(int)
 
-    # Collect conflicts: total reserved per resource > 6
     conflicts = []
     for res_name, grp in df.groupby("resource", dropna=False):
         total = int(grp["reserved_sprints"].sum())
         if total > 6:
-            # +2 for human row numbers: header=1, pandas index starts at 0
             row_numbers = (grp.index + 2).tolist()
             preview = grp[["tribe","app","role","reserved_sprints","resource"]].to_dict(orient="records")
             conflicts.append({
@@ -451,38 +456,17 @@ def upload_validate():
 
     return jsonify({"ok": len(conflicts) == 0, "conflicts": conflicts})
 
-@bp.post("/upload")
-@admin_required
-def upload_excel():
-    _ensure_min_schema()
 
-    # --- target quarter choice ---
-    target = (request.form.get("target")
-              or (request.json.get("target") if request.is_json else "")
-              or "current").strip().lower()
-    new_qname = (request.form.get("new_quarter_name")
-                 or (request.json.get("new_quarter_name") if request.is_json else "")
-                 or "").strip()
-
-    if target not in ("current", "new"):
-        target = "current"
-
-    file = request.files.get("file")
-    if not file:
-        return jsonify({"error": "Missing file"}), 400
-
-    try:
-        df = pd.read_excel(file)
-    except Exception as e:
-        return jsonify({"error": f"Failed to read Excel: {e}"}), 400
-
+# =========================
+# CORE UPLOAD IMPLEMENTATION
+# (used by both /upload and progressive /upload_excel_progress)
+# =========================
+def _normalize_and_classify(df: pd.DataFrame) -> pd.DataFrame:
     # normalize expected columns
-    # REQUIRED: tribe, app, role, reserved_sprints, resource
     df.columns = [str(c).strip().lower() for c in df.columns]
-    # Accept both "reserved sprints" and "reserved_sprints"
     rename_in = {
         "reserved sprints": "reserved_sprints",
-        "assignment type": "assign_type",  # if someone uploads it, we will ignore and recompute
+        "assignment type": "assign_type",
         "assign_type": "assign_type"
     }
     for k, v in rename_in.items():
@@ -492,9 +476,8 @@ def upload_excel():
     required_cols = {"tribe","app","resource","role","reserved_sprints"}
     missing = [c for c in required_cols if c not in set(df.columns)]
     if missing:
-        return jsonify({"error": f"Missing required columns: {', '.join(missing)}"}), 400
+        raise ValueError(f"Missing required columns: {', '.join(missing)}")
 
-    # clean data
     def _canon(s: str) -> str:
         s = str(s or "").strip()
         s = re.sub(r"\s+", " ", s)
@@ -504,23 +487,16 @@ def upload_excel():
         return s[:1].upper() + s[1:] if s else s
 
     df["tribe"]    = df["tribe"].map(_canon)
-    # normalize BusinessOps vs Business Operations etc.
     df["tribe"]    = df["tribe"].str.replace(r"\bops\b", "Operations", regex=True)
     df["app"]      = df["app"].map(_canon)
     df["resource"] = df["resource"].map(_title)
     df["role"]     = df["role"].map(_title)
-    # reserved_sprints numeric clamp 0..6
+
     df["reserved_sprints"] = pd.to_numeric(df["reserved_sprints"], errors="coerce").fillna(0).astype(int)
     df.loc[df["reserved_sprints"] < 0, "reserved_sprints"] = 0
     df.loc[df["reserved_sprints"] > 6, "reserved_sprints"] = 6
-
-    # dedupe identical lines
     df = df.drop_duplicates(subset=["tribe","app","resource","role"])
 
-    # Compute assignment type per your rule:
-    # - total <= 6 and multiple tribes => Shared
-    # - total <= 6 and one tribe       => Shared
-    # - total  = 6 and one tribe       => Dedicated
     agg = df.groupby("resource").agg(
         total_reserved=("reserved_sprints","sum"),
         tribes=("tribe","nunique"),
@@ -533,19 +509,30 @@ def upload_excel():
         else:
             atype = "Shared"
         atype_map[row.resource] = atype
-
     df["assign_type"] = df["resource"].map(atype_map)
+    return df
 
-    # decide snapshot (old current) and target quarter ids
+
+def _perform_upload(df: pd.DataFrame, target: str, new_qname: str|None, progress=None) -> tuple[int,int]:
+    """
+    Returns (rows_inserted, target_quarter_id).
+    `progress(pct)` can be passed to update progress 1..100.
+    """
+    _ensure_min_schema()
+    if progress: progress(1)
+
+    df = _normalize_and_classify(df)
+    rows_total = int(len(df))
+
     cur = fetch_one("SELECT id FROM quarters WHERE is_current = TRUE LIMIT 1")
     if not cur and target == "current":
-        return jsonify({"error": "No current quarter is set. Please set it first."}), 400
+        raise RuntimeError("No current quarter is set. Please set it first.")
 
+    # Resolve target qid
     if target == "new":
         if not new_qname:
-            return jsonify({"error": "Please enter the new quarter name before uploading."}), 400
+            raise RuntimeError("Please enter the new quarter name before uploading.")
 
-        # Detect which title column exists (code > name > label)
         if _has_col("quarters", "code"):
             qcol = "code"
         elif _has_col("quarters", "name"):
@@ -553,11 +540,9 @@ def upload_excel():
         elif _has_col("quarters", "label"):
             qcol = "label"
         else:
-            # very edge: create a title column
             execute("ALTER TABLE quarters ADD COLUMN code TEXT")
             qcol = "code"
 
-        # Upsert-like: create quarter if missing, not current yet (FALSE here)
         row = fetch_one(f"SELECT id FROM quarters WHERE {qcol} = :name", name=new_qname)
         if not row:
             execute(f"INSERT INTO quarters({qcol}, is_current, created_at) VALUES (:name, FALSE, NOW())", name=new_qname)
@@ -565,17 +550,17 @@ def upload_excel():
 
         qid_target = row["id"]
         qid_snapshot = cur["id"] if cur else None
-
     else:
         qid_target = cur["id"]
         qid_snapshot = cur["id"]
 
-    # -------- BEGIN TRANSACTION --------
+    # Simple progress plan: schema/snapshot(0-20), reseed dims(20-50), inserts(50-95), finalize(95-100)
+    if progress: progress(10)
+
     execute("BEGIN")
     try:
-        # === Snapshot current working sets into history_* for the SNAPSHOT quarter (if any) ===
+        # --- SNAPSHOT (if any) ---
         if qid_snapshot is not None:
-            # pick whichever assignment-type column exists on master_assignments
             if _has_col("master_assignments", "assignment_type"):
                 ma_type_expr = "assignment_type"
             elif _has_col("master_assignments", "assign_type"):
@@ -583,12 +568,10 @@ def upload_excel():
             else:
                 ma_type_expr = "NULL::text"
 
-            # sprint columns may be boolean or smallint; build expressions that work for both
             def _s(col: str) -> str:
                 dt = _col_type("master_assignments", col)
                 return col if (dt and dt.lower() == "boolean") else f"({col} <> 0)"
 
-            # history tables must exist
             if not _has_table("history_resources"):
                 execute("""
                     CREATE TABLE IF NOT EXISTS history_resources(
@@ -638,11 +621,9 @@ def upload_excel():
                       s4 BOOLEAN, s5 BOOLEAN, s6 BOOLEAN,
                       edited BOOLEAN, updated_at TIMESTAMP
                     )""")
-            # ensure history_temp_assignments has reserved_sprints (if it already existed)
             if not _has_col("history_temp_assignments", "reserved_sprints"):
                 execute("ALTER TABLE history_temp_assignments ADD COLUMN reserved_sprints INT NOT NULL DEFAULT 0")
 
-            # snapshot dims and current working sets
             execute("DELETE FROM history_resources WHERE quarter_id = :qid", qid=qid_snapshot)
             execute("DELETE FROM history_tribes WHERE quarter_id = :qid", qid=qid_snapshot)
             execute("DELETE FROM history_apps WHERE quarter_id = :qid", qid=qid_snapshot)
@@ -659,12 +640,12 @@ def upload_excel():
                 s1,s2,s3,s4,s5,s6, edited, updated_at
               )
               SELECT :qid, id, tribe_name, app_name, resource_name, role, {ma_type_expr},
-                     {_s('s1')}::{('boolean' if _col_type('master_assignments','s1')=='boolean' else 'boolean')} AS s1,
-                     {_s('s2')}::{('boolean' if _col_type('master_assignments','s2')=='boolean' else 'boolean')} AS s2,
-                     {_s('s3')}::{('boolean' if _col_type('master_assignments','s3')=='boolean' else 'boolean')} AS s3,
-                     {_s('s4')}::{('boolean' if _col_type('master_assignments','s4')=='boolean' else 'boolean')} AS s4,
-                     {_s('s5')}::{('boolean' if _col_type('master_assignments','s5')=='boolean' else 'boolean')} AS s5,
-                     {_s('s6')}::{('boolean' if _col_type('master_assignments','s6')=='boolean' else 'boolean')} AS s6,
+                     {_s('s1')}::boolean AS s1,
+                     {_s('s2')}::boolean AS s2,
+                     {_s('s3')}::boolean AS s3,
+                     {_s('s4')}::boolean AS s4,
+                     {_s('s5')}::boolean AS s5,
+                     {_s('s6')}::boolean AS s6,
                      edited, updated_at
               FROM master_assignments
             """, qid=qid_snapshot)
@@ -683,9 +664,9 @@ def upload_excel():
               LEFT JOIN apps   ap ON ap.id = ta.app_id
             """, qid=qid_snapshot)
 
-        # === Reset working sets (FK-safe) ===
-         # === Reset working sets (FK-safe, keep history) ===
-        # Delete in dependency order: detail tables before dimensions to satisfy FKs
+        if progress: progress(20)
+
+        # --- RESET working sets (FK-safe) ---
         execute("""
         DELETE FROM master_assignments;
         DELETE FROM temp_assignments;
@@ -694,57 +675,61 @@ def upload_excel():
         DELETE FROM apps;
         """)
 
-                # Reset sequences to mimic RESTART IDENTITY
+        # Reset sequences like RESTART IDENTITY
         execute("""
         DO $$
         BEGIN
-        -- master_assignments
         IF EXISTS (SELECT 1 FROM pg_class WHERE relname = 'master_assignments') THEN
             PERFORM setval(pg_get_serial_sequence('master_assignments','id'), 1, false);
         END IF;
-
-        -- temp_assignments
         IF EXISTS (SELECT 1 FROM pg_class WHERE relname = 'temp_assignments') THEN
             PERFORM setval(pg_get_serial_sequence('temp_assignments','id'), 1, false);
         END IF;
-
-        -- resources
         IF EXISTS (SELECT 1 FROM pg_class WHERE relname = 'resources') THEN
             PERFORM setval(pg_get_serial_sequence('resources','id'), 1, false);
         END IF;
-
-        -- tribes
         IF EXISTS (SELECT 1 FROM pg_class WHERE relname = 'tribes') THEN
             PERFORM setval(pg_get_serial_sequence('tribes','id'), 1, false);
         END IF;
-
-        -- apps
         IF EXISTS (SELECT 1 FROM pg_class WHERE relname = 'apps') THEN
             PERFORM setval(pg_get_serial_sequence('apps','id'), 1, false);
         END IF;
         END $$;
         """)
 
-        # === Re-seed base dimensions from new Excel ===
-        for t in sorted(df["tribe"].unique()):
+        # --- RESEED dimensions ---
+        tribes_u = sorted(df["tribe"].unique())
+        apps_u   = sorted(df["app"].unique())
+        res_u    = df[["resource","role"]].drop_duplicates(subset=["resource"])
+
+        total_ops = len(tribes_u) + len(apps_u) + len(res_u) + rows_total
+        done_ops  = 0
+        def _bump():
+            nonlocal done_ops
+            done_ops += 1
+            pct = 20 + int((done_ops / max(1,total_ops)) * 75)  # up to 95%
+            if progress: progress(min(95, pct))
+
+        for t in tribes_u:
             execute("INSERT INTO tribes(name) VALUES (:n) ON CONFLICT (name) DO NOTHING", n=t)
-        for a in sorted(df["app"].unique()):
+            _bump()
+        for a in apps_u:
             execute("INSERT INTO apps(name) VALUES (:n) ON CONFLICT (name) DO NOTHING", n=a)
-        # resources by name (last role wins)
-        for r_name, r_role in df[["resource","role"]].drop_duplicates(subset=["resource"]).itertuples(index=False):
+            _bump()
+        for r_name, r_role in res_u.itertuples(index=False):
             execute("""
                 INSERT INTO resources(name, role) VALUES (:n,:role)
                 ON CONFLICT (name) DO UPDATE SET role = EXCLUDED.role
             """, n=r_name, role=r_role)
+            _bump()
 
-        # Insert temp_assignments depending on available columns
+        # --- Insert temp_assignments ---
         ta_has_tribe_id   = _has_col("temp_assignments", "tribe_id")
         ta_has_app_id     = _has_col("temp_assignments", "app_id")
         ta_has_tribe_name = _has_col("temp_assignments", "tribe_name")
         ta_has_app_name   = _has_col("temp_assignments", "app_name")
         ta_has_res_id     = _has_col("temp_assignments", "resource_id")
 
-        # ensure mandatory columns exist
         if not ta_has_tribe_id and not ta_has_tribe_name:
             execute("ALTER TABLE temp_assignments ADD COLUMN tribe_name TEXT")
             ta_has_tribe_name = True
@@ -779,15 +764,104 @@ def upload_excel():
             vals += [":rname", ":role", ":atype", ":rs"]
             sql = f"INSERT INTO temp_assignments({', '.join(cols)}) VALUES ({', '.join(vals)})"
             execute(sql, **params)
+            _bump()
 
         execute("COMMIT")
-        # after execute("COMMIT")
+
+        # If user asked to create a new quarter, make it current after upload finishes
         if target == "new":
             execute("UPDATE quarters SET is_current = FALSE")
             execute("UPDATE quarters SET is_current = TRUE WHERE id = :id", id=qid_target)
+
+        if progress: progress(100)
+        return rows_total, qid_target
 
     except Exception:
         execute("ROLLBACK")
         raise
 
-    return jsonify({"ok": True, "rows": int(len(df)), "target_quarter_id": qid_target})
+
+# =========================
+# ORIGINAL UPLOAD (kept for compatibility)
+# =========================
+@bp.post("/upload")
+@admin_required
+def upload_excel():
+    file = request.files.get("file")
+    if not file:
+        return jsonify({"error": "Missing file"}), 400
+
+    try:
+        df = pd.read_excel(file)
+    except Exception as e:
+        return jsonify({"error": f"Failed to read Excel: {e}"}), 400
+
+    target = (request.form.get("target")
+              or (request.json.get("target") if request.is_json else "")
+              or "current").strip().lower()
+    new_qname = (request.form.get("new_quarter_name")
+                 or (request.json.get("new_quarter_name") if request.is_json else "")
+                 or "").strip()
+
+    try:
+        rows, qid = _perform_upload(df, target, new_qname, progress=None)
+        return jsonify({"ok": True, "rows": int(rows), "target_quarter_id": int(qid)})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+
+# =========================
+# PROGRESSIVE UPLOAD (new)
+# =========================
+@bp.post("/upload_excel_progress")
+@admin_required
+def upload_excel_progress():
+    """
+    Same form-data as /upload. Returns {"job_id": "..."} immediately and processes in background.
+    Client should poll /admin/upload_progress/<job_id>.
+    """
+    f = request.files.get("file")
+    if not f:
+        return jsonify({"error": "Missing file"}), 400
+
+    target = (request.form.get("target")
+              or (request.json.get("target") if request.is_json else "")
+              or "current").strip().lower()
+    new_qname = (request.form.get("new_quarter_name")
+                 or (request.json.get("new_quarter_name") if request.is_json else "")
+                 or "").strip()
+
+    try:
+        df = pd.read_excel(f)
+    except Exception as e:
+        return jsonify({"error": f"Failed to read Excel: {e}"}), 400
+
+    job_id = secrets.token_hex(8)
+    _PROGRESS[job_id] = {"percent": 1, "status": "running"}
+
+    def _worker():
+        try:
+            def cb(p):
+                _progress_update(job_id, percent=p, status="running")
+            rows, qid = _perform_upload(df, target, new_qname, progress=cb)
+            _progress_update(job_id, percent=100, status="done", rows=int(rows), target_quarter_id=int(qid))
+        except Exception as e:
+            _progress_update(job_id, percent=100, status="error", error=str(e))
+
+    threading.Thread(target=_worker, daemon=True).start()
+    return jsonify({"job_id": job_id}), 202
+
+
+@bp.get("/upload_progress/<job_id>")
+@admin_required
+def upload_progress(job_id):
+    p = _PROGRESS.get(job_id)
+    if not p:
+        return jsonify({"percent": 0, "status": "unknown"}), 404
+    return jsonify({
+        "percent": p.get("percent", 0),
+        "status": p.get("status", "running"),
+        "rows": p.get("rows"),
+        "target_quarter_id": p.get("target_quarter_id"),
+        "error": p.get("error")
+    })

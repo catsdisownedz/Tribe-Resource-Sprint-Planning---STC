@@ -1,8 +1,9 @@
 # app.py
 import os, time, webbrowser
-from flask import Flask, render_template, g, request
+from flask import Flask, render_template, g, request, Blueprint
 from dotenv import load_dotenv
 from time import perf_counter
+from db import fetch_one
 
 load_dotenv(override=True)
 # app.py
@@ -50,7 +51,15 @@ def create_app():
 
     @app.get("/")
     def index():
-        return render_template("index.html")
+        # fetch current quarter name (null-safe)
+        row = fetch_one("""
+            SELECT COALESCE(name, code) AS title
+            FROM quarters
+            WHERE is_current = TRUE
+            LIMIT 1
+        """)
+        current = (row or {}).get("title") or ""
+        return render_template("index.html", current_quarter=current)
 
     return app
 
@@ -69,6 +78,8 @@ if __name__ == "__main__":
         except Exception:
             pass
 
-    import threading
-    threading.Thread(target=_open, daemon=True).start()
+    # only run once (not in reloader child process)
+    if os.environ.get("WERKZEUG_RUN_MAIN") == "true":
+        threading.Thread(target=_open, daemon=True).start()
+
     app.run(host=host, port=port, debug=True)

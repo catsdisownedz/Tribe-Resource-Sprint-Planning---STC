@@ -1,14 +1,25 @@
 # db.py
 import os
 from sqlalchemy import create_engine, text
+from dotenv import load_dotenv
 from sqlalchemy.orm import declarative_base
 import time, logging
 from time import monotonic
 logging.basicConfig(level=logging.INFO)
 _q_cache = {"qid": None, "ts": 0.0}
 
-
+load_dotenv(override=True)
+# db.py
 DATABASE_URL = os.getenv("DATABASE_URL")  # your Neon URL
+
+if not DATABASE_URL:
+    raise RuntimeError(
+        "DATABASE_URL is not set. Put it in a .env file in the project root, "
+        "e.g. DATABASE_URL=postgresql+psycopg://user:pass@host/db?sslmode=require"
+    )
+
+engine = create_engine(DATABASE_URL, future=True, pool_pre_ping=True)
+
 engine = create_engine(DATABASE_URL, future=True, pool_pre_ping=True)
 Base = declarative_base()
 

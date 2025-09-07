@@ -1,8 +1,7 @@
-# UTF-8
 VSVersionInfo(
   ffi=FixedFileInfo(
-    filevers=(1,0,0,0),
-    prodvers=(1,0,0,0),
+    filevers=(1, 0, 0, 0),
+    prodvers=(1, 0, 0, 0),
     mask=0x3f,
     flags=0x0,
     OS=0x40004,
@@ -13,15 +12,17 @@ VSVersionInfo(
   kids=[
     StringFileInfo([
       StringTable(
-        '040904B0', [
-          StringStruct('CompanyName', 'Zeina Regaily'),
-          StringStruct('FileDescription', 'Tribe Resource Sprint Planning'),
+        '040904B0',
+        [
+          StringStruct('CompanyName', 'Zeina'),
+          StringStruct('FileDescription', 'Tribe Sprint Resource Planning (Chapter Resource Booking)'),
           StringStruct('FileVersion', '1.0.0'),
-          StringStruct('InternalName', 'Tribe Resource Sprint Planning'),
-          StringStruct('LegalCopyright', '© 2025 Zeina Regaily. All rights reserved.'),
-          StringStruct('OriginalFilename', 'Tribe Resource Sprint Planning.exe'),
-          StringStruct('ProductName', 'Tribe Resource Sprint Planning'),
-          StringStruct('ProductVersion', '1.0.0')
+          StringStruct('InternalName', 'BookingSystem'),
+          StringStruct('LegalCopyright', '© 2025 Zeina. All rights reserved.'),
+          StringStruct('OriginalFilename', 'BookingSystem.exe'),
+          StringStruct('ProductName', 'BookingSystem'),
+          StringStruct('ProductVersion', '1.0.0'),
+          StringStruct('Comments', 'Built with Flask + PyInstaller')
         ]
       )
     ]),

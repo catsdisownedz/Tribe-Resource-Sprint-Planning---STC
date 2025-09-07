@@ -1,113 +1,234 @@
-<!-- templates/index.html -->
 <!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Tribe Resource Sprint Planning</title>
+  <title>Tribe Sprint Resource Planning</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
 
-  <!-- Fonts & Styles -->
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/choices.js/public/assets/styles/choices.min.css">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
   <style>
-    body { font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
+    /* Put the logo on the very top so nothing can cover it */
+    /* Put the logo on the very top so nothing can cover it */
+    #stcLogo{
+      position:relative;
+      z-index:2147483647; /* wins every stacking battle */
+      display:inline-block;
+      height:55px; /* bigger logo */
+      width:auto;
+      filter: drop-shadow(0 0 2px rgba(255,255,255,0.7)); /* faint white glow */
+    }
+    
+    .brand-title{
+      font-weight:800;
+      letter-spacing:.2px;
+      margin:0;
+      color:#fff;
+      font-size:1.75rem; /* bigger title */
+    }
+    
+    /* Current quarter pill */
+    .q-pill{
+      background:var(--stc);
+      color:#fff;
+      font-weight:800; /* bolder */
+      padding:.25rem .7rem;
+      border-radius:999px;
+    }
+    
+
+    :root{ --stc:#712C81; }
+    body{
+      font-family:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+      background:
+        linear-gradient(180deg, rgba(113,44,129,0.04), rgba(113,44,129,0.02)),
+        url("{{ url_for('static', filename='img/stc_bg.jpg') }}") center/cover fixed no-repeat;
+      min-height:100vh;
+    }
+
+    /* Header */
+    .brand-wrap{ display:flex; align-items:center; gap:.75rem; color:#fff; }
+    .brand-wrap img{ height:40px; width:auto; }
+    .brand-title{ font-weight:800; letter-spacing:.2px; margin:0; color:#fff; }
+
+    /* Current quarter banner (outside tabs ⇒ white text) */
+    .q-banner{
+      display:flex; align-items:center; gap:.6rem;
+      color:#fff; padding:.4rem 0;
+    }
+    .q-pill{
+      background:var(--stc); color:#fff; font-weight:700;
+      padding:.2rem .55rem; border-radius:999px;
+    }
+
+    /* Admin button (top-right) */
+    .admin-btn{
+      position:absolute; top:16px; right:16px;
+      border-radius:999px; padding:.4rem .9rem; font-weight:600;
+      background:#fff; border:1px solid rgba(0,0,0,.08);
+    }
+    .admin-btn:hover{ background:var(--stc); color:#fff; border-color:var(--stc); }
+
+    /* Tabs: connected and content pure white */
+    .tabs-shell{ background:#fff; border-radius:16px; box-shadow:0 10px 30px rgba(0,0,0,.06); }
+    .nav-tabs{
+      --bs-nav-tabs-border-width:0;
+      --bs-nav-tabs-link-active-bg:#fff;
+      --bs-nav-tabs-link-active-border-color:#fff;
+      border-bottom:1px solid #eee;
+      padding:0 1rem;
+    }
+    .nav-tabs .nav-link{
+      border-radius:0; margin-right:.5rem; color:#6c6c6c; font-weight:600;
+    }
+    .nav-tabs .nav-link.active{
+      color:#000; border-bottom:3px solid var(--stc);
+    }
+    .nav-tabs .nav-link:hover{ color:var(--stc); }
+
+    .tab-content{
+      background:#fff; border-radius:0 0 16px 16px;
+      padding:1rem; border-top:0;
+    }
+
+    /* Tables */
+    .table thead.table-light{ --bs-table-bg:#fff; }
+    .table-sm td, .table-sm th{ padding:.55rem .65rem; }
+    .scroll-wrap{ max-height:60vh; overflow:auto; border-radius:12px; }
+    .btn-primary{
+      --bs-btn-bg:var(--stc);
+      --bs-btn-border-color:var(--stc);
+      --bs-btn-hover-bg:#5f246c;
+      --bs-btn-hover-border-color:#5f246c;
+      --bs-btn-active-bg:#4f1e5a;
+      --bs-btn-active-border-color:#4f1e5a;
+    }
+    .btn-outline-secondary:hover,
+    .btn-outline-dark:hover{ background:var(--stc); color:#fff; border-color:var(--stc); }
+    .brand-wrap{ position:relative; z-index:1001; }
+    .brand-wrap img{ height:40px; width:auto; display:inline-block; }
+
+    /* Keep background darkening UNDER all content */
+  body::before{
+    content:"";
+    position:fixed;
+    inset:0;
+    background:rgba(0,0,0,.25); /* tweak darkness if you like */
+    z-index:0;                   /* bottom-most layer */
+    pointer-events:none;
+  }
+
+    /* Ensure page content sits above body::before */
+  .container{ position:relative; z-index:1; }
+
+  /* Tabs shell should never float over the header/logo */
+  .tabs-shell{ position:relative; z-index:10; }
+
+  /* Header stack above tabs shell */
+  .brand-wrap{ position:relative; z-index:1001; }
+
+  /* Admin button above content, below the logo */
+  .admin-btn{ position:absolute; z-index:1000; }
+
   </style>
 </head>
 <body>
-<div class="container py-4">
-  <h1 class="mb-3">Tribe Resource Sprint Planning</h1>
-  <a href="/admin/login" class="btn btn-outline-dark btn-sm"
-   style="position:absolute; top:16px; right:16px;">
-  Login as admin
-  </a>
+  <div class="container py-4 position-relative">
 
-  <!-- Tabs -->
-  <ul class="nav nav-tabs" id="tabs" role="tablist">
-    <li class="nav-item" role="presentation">
-      <button class="nav-link active" id="book-tab" data-bs-toggle="tab" data-bs-target="#book" type="button" role="tab" aria-controls="book" aria-selected="true">Booking</button>
-    </li>
-    <li class="nav-item" role="presentation">
-      <button class="nav-link" id="view-tab" data-bs-toggle="tab" data-bs-target="#view" type="button" role="tab" aria-controls="view" aria-selected="false">View Bookings</button>
-    </li>
-  </ul>
-
-  <div class="tab-content border border-top-0 p-3 rounded-bottom">
-    <!-- Booking -->
-    <div class="tab-pane fade show active" id="book" role="tabpanel" aria-labelledby="book-tab">
-      <!-- Filters -->
-      <div class="row g-2">
-        <div class="col-sm-2"><input id="bTribe" class="form-control" placeholder="Filter tribe"></div>
-        <div class="col-sm-2"><input id="bApp" class="form-control" placeholder="Filter app"></div>
-        <div class="col-sm-2"><input id="bRole" class="form-control" placeholder="Filter role"></div>
-        <div class="col-sm-2"><input id="bResource" class="form-control" placeholder="Filter resource"></div>
-        <div class="col-sm-2"><input id="bType" class="form-control" placeholder="Filter type"></div>
+    <!-- Header (white text, logo on the left) -->
+    <div class="d-flex justify-content-between align-items-center mb-1">
+      <div class="brand-wrap">
+        <img id="stcLogo" src="{{ url_for('static', filename='img/stc_logo.png') }}?v=2" alt="stc">
+        <h1 class="brand-title h3">Tribe Sprint Resource Planning</h1>
       </div>
-      
-
-      <!-- Table -->
-      <div class="table-responsive mt-3" style="max-height: 60vh; overflow: auto;">
-        <table class="table table-sm align-middle">
-          <thead id="tempHead" class="table-light">
-            <tr>
-              <th>Tribe</th>
-              <th>Type</th>
-              <th>App</th>
-              <th>Resource</th>
-              <th>Role</th>
-              <th class="text-center">Reserved</th>
-              <th class="text-end">Select</th>
-            </tr>
-          </thead>               
-          <tbody id="tempBody"></tbody>
-        </table>
-      </div>
-
-      <div class="d-flex justify-content-end mt-3">
-        <button id="selectOk" class="btn btn-primary" disabled>OK</button>
-      </div>
+      <a href="/admin/login" class="btn btn-outline-dark btn-sm admin-btn">Login as admin</a>
     </div>
 
-    <!-- View Bookings -->
-    <div class="tab-pane fade" id="view" role="tabpanel" aria-labelledby="view-tab">
-      <!-- Filters -->
-      <div class="row g-2">
-        <div class="col-sm-2"><input id="fTribe" class="form-control" placeholder="Filter tribe"></div>
-        <div class="col-sm-2"><input id="fApp" class="form-control" placeholder="Filter app"></div>
-        <div class="col-sm-2"><input id="fRole" class="form-control" placeholder="Filter role"></div>
-        <div class="col-sm-2"><input id="fResource" class="form-control" placeholder="Filter resource"></div>
-        <div class="col-sm-2"><input id="fType" class="form-control" placeholder="Filter type"></div>
-        <div class="col-sm-2 d-grid"><button id="exportBtn" class="btn btn-outline-secondary">Download Excel</button></div>
-      </div>
-      
+    <!-- Current quarter (white text outside tabs) -->
+    <div class="q-banner mb-3">
+      <span>Current quarter:</span>
+      <span class="q-pill" id="currentQuarter">{{ current_quarter or "" }}</span>
+    </div>
 
-      <!-- Table -->
-      <div class="table-responsive mt-3" style="max-height: 60vh; overflow: auto;">
-        <table class="table table-sm align-middle">
-          <thead class="table-light">
-            <tr>
-              <th>Tribe</th>
-              <th>App</th>
-              <th>Role</th>
-              <th>Resource</th>
-              <th>Type</th>
-              <th>Sprints</th>
-              <th style="width: 1%;"></th>
-              <th class="text-end" style="width: 1%;"></th>
-            </tr>
-          </thead>          
-          <tbody id="assignBody"></tbody>
-        </table>
+    <!-- Tabs shell (pure white) -->
+    <div class="tabs-shell">
+      <ul class="nav nav-tabs pt-2" id="tabs" role="tablist">
+        <li class="nav-item" role="presentation">
+          <button class="nav-link active" id="book-tab" data-bs-toggle="tab" data-bs-target="#book" type="button" role="tab" aria-controls="book" aria-selected="true">Booking</button>
+        </li>
+        <li class="nav-item" role="presentation">
+          <button class="nav-link" id="view-tab" data-bs-toggle="tab" data-bs-target="#view" type="button" role="tab" aria-controls="view" aria-selected="false">View Bookings</button>
+        </li>
+      </ul>
+
+      <div class="tab-content">
+        <!-- Booking -->
+        <div class="tab-pane fade show active" id="book" role="tabpanel" aria-labelledby="book-tab">
+          <div class="row g-2">
+            <div class="col-sm-2"><input id="bTribe" class="form-control" placeholder="Filter tribe"></div>
+            <div class="col-sm-2"><input id="bApp" class="form-control" placeholder="Filter app"></div>
+            <div class="col-sm-2"><input id="bRole" class="form-control" placeholder="Filter role"></div>
+            <div class="col-sm-2"><input id="bResource" class="form-control" placeholder="Filter resource"></div>
+            <div class="col-sm-2"><input id="bType" class="form-control" placeholder="Filter type"></div>
+          </div>
+
+          <div class="table-responsive mt-3 scroll-wrap bg-white">
+            <table class="table table-sm align-middle mb-0">
+              <thead id="tempHead" class="table-light">
+                <tr>
+                  <th>Tribe</th>
+                  <th>Type</th>
+                  <th>App</th>
+                  <th>Resource</th>
+                  <th>Role</th>
+                  <th class="text-center">Reserved</th>
+                  <th class="text-end">Select</th>
+                </tr>
+              </thead>
+              <tbody id="tempBody"></tbody>
+            </table>
+          </div>
+
+          <div class="d-flex justify-content-end mt-3">
+            <button id="selectOk" class="btn btn-primary" disabled>OK</button>
+          </div>
+        </div>
+
+        <!-- View Bookings -->
+        <div class="tab-pane fade" id="view" role="tabpanel" aria-labelledby="view-tab">
+          <div class="row g-2">
+            <div class="col-sm-2"><input id="fTribe" class="form-control" placeholder="Filter tribe"></div>
+            <div class="col-sm-2"><input id="fApp" class="form-control" placeholder="Filter app"></div>
+            <div class="col-sm-2"><input id="fRole" class="form-control" placeholder="Filter role"></div>
+            <div class="col-sm-2"><input id="fResource" class="form-control" placeholder="Filter resource"></div>
+            <div class="col-sm-2"><input id="fType" class="form-control" placeholder="Filter type"></div>
+            <div class="col-sm-2 d-grid"><button id="exportBtn" class="btn btn-outline-secondary">Download Excel</button></div>
+          </div>
+
+          <div class="table-responsive mt-3 scroll-wrap bg-white">
+            <table class="table table-sm align-middle mb-0">
+              <thead class="table-light">
+                <tr>
+                  <th>Tribe</th>
+                  <th>App</th>
+                  <th>Role</th>
+                  <th>Resource</th>
+                  <th>Type</th>
+                  <th>Sprints</th>
+                  <th style="width:1%;"></th>
+                  <th class="text-end" style="width:1%;"></th>
+                </tr>
+              </thead>
+              <tbody id="assignBody"></tbody>
+            </table>
+          </div>
+        </div>
       </div>
     </div>
   </div>
-</div>
 
-<!-- Scripts -->
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/choices.js/public/assets/scripts/choices.min.js"></script>
-<script src="{{ url_for('static', filename='js/booking.js') }}"></script>
-<script src="{{ url_for('static', filename='js/main.js') }}"></script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="{{ url_for('static', filename='js/booking.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/main.js') }}"></script>
 </body>
 </html>
