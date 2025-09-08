@@ -8,6 +8,14 @@
   <style>
     :root{ --stc:#712C81; }
 
+    /* stronger green banner and subtle left bar */
+.alert-strong{ border-left:6px solid #198754; }
+.alert-success.alert-strong{
+  background:#16a34a;           /* vivid green */
+  border-color:#15803d;
+  color:#fff;
+}
+
     /* Background + dark overlay */
     body{
       background:
@@ -100,15 +108,17 @@
 </nav>
 
 <main class="container py-4" data-temp-id="{{ temp_id }}">
+  <div id="notices" class="position-fixed top-0 end-0 p-3" style="z-index:2000;"></div>
+
   <div class="q-banner mb-3 d-flex align-items-center gap-2">
     <span>Current quarter:</span>
     <span class="badge q-pill">{{ current_quarter or "" }}</span>
   </div>
 
-  <div id="bookNotice" class="alert alert-success d-none alert-dismissible fade show" role="alert" style="border-left:4px solid #712C81;">
-    Booking saved successfully. Redirecting…
-    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+  <div id="bookNotice" class="alert alert-success alert-strong d-none fade show" role="alert">
+    <strong>Booking saved!</strong> Redirecting…
   </div>
+  
 
   <div id="detail" class="card">
     <div class="card-body">

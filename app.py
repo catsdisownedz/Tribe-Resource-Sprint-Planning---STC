@@ -5,7 +5,30 @@ from dotenv import load_dotenv
 from time import perf_counter
 from db import fetch_one
 
-load_dotenv(override=True)
+def _load_env_external():
+    """Load .env from safe locations without bundling, and never override real OS env."""
+    # If both are already set via OS env, do nothing.
+    if os.getenv("DATABASE_URL") and os.getenv("FLASK_SECRET"):
+        return
+
+    from pathlib import Path
+    candidates = []
+
+    # When frozen: prefer a .env placed NEXT TO the executable
+    if getattr(sys, "frozen", False):
+        candidates.append(Path(sys.executable).parent / ".env")
+
+    # Fallbacks for dev / non-frozen runs
+    candidates.append(Path.cwd() / ".env")
+    candidates.append(Path(__file__).resolve().parent / ".env")
+
+    for p in candidates:
+        if p and p.exists():
+            load_dotenv(p, override=False)   # don't overwrite OS env
+            break
+
+# Load external .env if available
+_load_env_external()
 
 # --- Resolve base path for templates/static (works in dev and PyInstaller) ---
 def _base_path():

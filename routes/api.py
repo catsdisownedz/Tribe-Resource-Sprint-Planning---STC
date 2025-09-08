@@ -384,6 +384,10 @@ def patch_assignment(aid):
         else:
             # keep current value if not provided
             future[k] = bool(row[k])
+        # --- Early exit: if no sprint values changed, skip update so 'edited' stays as-is ---
+    if all(bool(row[f"s{i}"]) == future[f"s{i}"] for i in range(1,7)):
+        return jsonify({"ok": True, "unchanged": True})
+
 
     # 1) Blocked by OTHER tribes on this resource (boolean-safe)
     blocked = fetch_one("""

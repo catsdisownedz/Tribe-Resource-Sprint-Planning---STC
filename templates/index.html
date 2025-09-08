@@ -11,6 +11,18 @@
   <style>
     :root{ --stc:#712C81; }
 
+    /* keep sprint checkboxes in a single line */
+    .sprint-inline{ display:flex; align-items:center; gap:10px; flex-wrap:nowrap; white-space:nowrap; }
+    .sprint-chip{ display:inline-flex; align-items:center; gap:6px; margin-right:8px; }
+    
+    /* tiny grey metadata, e.g. (edited at …) */
+.edited-at{
+  font-size:11px;           /* very small */
+  color:rgba(0,0,0,.45);    /* light grey */
+  font-weight:500;
+  white-space:nowrap;
+}
+
       /* Footer copyright */
       .site-footer{
         position: fixed;
@@ -203,8 +215,8 @@
     .tabs-toolbar--book,
     .tabs-toolbar--view{
       position:absolute;
-      top:25px;     /* adjust 52–60px to fine-tune */
-      right:26px;   /* adjust 16–28px if needed */
+      top:19px;     /* adjust 52–60px to fine-tune */
+      right:35px;   /* adjust 16–28px if needed */
       z-index:11;
     }
 

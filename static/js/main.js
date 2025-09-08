@@ -134,25 +134,27 @@ function createActionCell(row, tr, tdS){
       fetchAvailabilityForRow(row).catch(()=>{ /* ignore */ });
   
       const wrap = document.createElement("div");
-      wrap.className = "d-flex align-items-center flex-wrap gap-2";
-  
+      wrap.className = "sprint-inline";
+      
       let initialChecked = 0;
       for (let i=1;i<=6;i++){ if (row[`s${i}`]) initialChecked++; }
       const baseUsed = Math.max(0, bookedByTribe - initialChecked);
   
       for (let i=1;i<=6;i++){
+        const lab = document.createElement("label");
+        lab.className = "sprint-chip" + (/* disabled state class */ (blocked[i-1] && !mine[i-1] && !row[`s${i}`] ? " opacity-50" : ""));
+        
         const chk = document.createElement("input");
         chk.type = "checkbox";
-        chk.className = "form-check-input me-1";
+        chk.className = "form-check-input";
         chk.id = `s${i}-${row.id}`;
         chk.checked = !!row[`s${i}`];
-  
+      
         const isBlocked = !!blocked[i-1];
         const isMine    = !!mine[i-1];
         chk.disabled = isBlocked && !isMine && !chk.checked;
-  
         if (chk.disabled) chk.title = "This sprint is already booked by another tribe";
-  
+      
         chk.addEventListener("change", () => {
           const checkedCount = Array.from(wrap.querySelectorAll('input[type="checkbox"]')).filter(x => x.checked).length;
           const totalAfter = baseUsed + checkedCount;
@@ -161,13 +163,13 @@ function createActionCell(row, tr, tdS){
             alert(`You can book at most ${capPerTribe} sprint(s) for this resource.`);
           }
         });
-  
-        const lab = document.createElement("label");
-        lab.className = "form-check-label me-2" + (chk.disabled ? " opacity-50" : "");
-        lab.htmlFor = chk.id;
-        lab.textContent = `S${i}`;
-        wrap.appendChild(chk); wrap.appendChild(lab);
+      
+        // nest input inside label so they stay glued; add text
+        lab.appendChild(chk);
+        lab.append(`S${i}`);
+        wrap.appendChild(lab);
       }
+      
   
       tdS.innerHTML = "";
       tdS.appendChild(wrap);
@@ -178,15 +180,34 @@ function createActionCell(row, tr, tdS){
       btn.disabled = false;
       btn.dataset.busy = "0";  
     } else {
-      // SAVE branch
+      // ==== SAVE branch (with "Saving…" animation) ====
       const probe = document.getElementById(`s1-${row.id}`);
-      if (!probe) return; // UI not mounted yet; ignore accidental save
-
+      if (!probe) return; // UI not mounted yet
+    
+      // Build request body from the six checkboxes
       const body = {};
       for (let i=1;i<=6;i++){
         const el = document.getElementById(`s${i}-${row.id}`);
         body[`s${i}`] = !!(el && el.checked);
       }
+    
+      // UI: start saving state
+      btn.dataset.busy = "1";
+      btn.disabled = true;
+      btn.innerHTML = `<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>Saving…`;
+    
+      const wrapEl = tdS.querySelector('.sprint-inline') || tdS.firstElementChild || tdS;
+      wrapEl.classList.add('pe-none','opacity-50'); // lock and fade the checkboxes
+    
+      // Helper to end saving (choose label and whether to exit edit mode)
+      const endSaving = (label = "Edit", exitEdit = true) => {
+        btn.innerHTML = label;
+        btn.disabled = false;
+        btn.dataset.busy = "0";
+        wrapEl.classList.remove('pe-none','opacity-50');
+        if (exitEdit) tdS.dataset.mode = "view";
+      };
+    
       try {
         const r = await fetch(`/api/assignments/${row.id}`, {
           method: "PATCH",
@@ -196,21 +217,33 @@ function createActionCell(row, tr, tdS){
         const text = await r.text();
         let j; try { j = JSON.parse(text); } catch { j = { error: text }; }
         if (!r.ok) throw new Error(j.error || "failed");
-
-        // reflect in UI
+    
+        // If backend says nothing changed, don't mark edited; just exit edit mode
+        if (j && j.unchanged) {
+          tdS.textContent = sprintsToText(row);
+          endSaving("Edit", true);
+          return;
+        }
+    
+        // Success with changes: update row + edited note
         for (let i=1;i<=6;i++) row[`s${i}`] = body[`s${i}`];
         tdS.textContent = sprintsToText(row);
-        tdS.dataset.mode = "view";
-        btn.textContent = "Edit";
         const note = tr.querySelector(".edited-note");
-        if (note) note.textContent = `edited at ${new Date().toLocaleString()}`;
-
-        // refresh caches & table so instant-availability stays correct
+        if (note) {
+          const ts = new Date().toLocaleString();
+          note.innerHTML = `<span class="edited-at">(edited at ${ts})</span>`;
+        }
+    
+        endSaving("Edit", true);
+        // refresh caches so next edit has correct availability
         loadAssignments();
       } catch (err) {
         alert(String(err.message || err));
+        // Stay in edit mode on error; restore button to "Save"
+        endSaving("Save", false);
       }
     }
+    
   });
 
   tdAct.appendChild(btn);
@@ -235,8 +268,14 @@ function buildRow(row){
 
   const tdNote = document.createElement("td");
   tdNote.className = "text-end edited-note";
-  tdNote.textContent = row.edited ? `edited at ${new Date(row.updated_at || Date.now()).toLocaleString()}` : "";
+  if (row.edited) {
+    const ts = new Date(row.updated_at || Date.now()).toLocaleString();
+    tdNote.innerHTML = `<span class="edited-at">(edited at ${ts})</span>`;
+  } else {
+    tdNote.innerHTML = "";
+  }
   tr.appendChild(tdNote);
+  
 
   tr.dataset.key = `${row.tribe_name}__${row.app_name}__${row.resource_name}__${row.role}`;
   return tr;
@@ -274,7 +313,14 @@ async function loadAssignments(){
         const tdS = cells[5];
         if (tdS && tdS.dataset.mode === "view") tdS.textContent = sprintsToText(row);
         const note = cells[7];
-        if (note) note.textContent = row.edited ? `edited at ${new Date(row.updated_at || Date.now()).toLocaleString()}` : "";
+        if (note) {
+          if (row.edited) {
+            const ts = new Date(row.updated_at || Date.now()).toLocaleString();
+            note.innerHTML = `<span class="edited-at">(edited at ${ts})</span>`;
+          } else {
+            note.innerHTML = "";
+          }
+        }        
         existing.delete(String(row.id));
       } else {
         frag.appendChild(buildRow(row));
@@ -309,6 +355,29 @@ function initView(){
 document.addEventListener("DOMContentLoaded", () => {
   initView();  // initial load
 
+    // --- "Book resource" spinner + lock while navigating ---
+    const bookBtn = document.getElementById('selectOk');
+    if (bookBtn) {
+      bookBtn.addEventListener('click', () => {
+        if (bookBtn.dataset.busy === '1') return;
+  
+        // the selected row in Book Sprints (must have .table-active and data-id)
+        const active = document.querySelector('#tempBody tr.table-active[data-id]');
+        if (!active) { alert('Select a resource row first.'); return; }
+        const tempId = active.dataset.id;
+  
+        // start busy UI
+        bookBtn.dataset.busy = '1';
+        bookBtn.disabled = true;
+        bookBtn.innerHTML = `<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>Booking…`;
+        const area = document.querySelector('#book .scroll-wrap');
+        area?.classList.add('pe-none','opacity-50');
+  
+        // navigate to booking page
+        setTimeout(() => { window.location = `/booking/${tempId}`; }, 10);
+      });
+    }
+  
   warmAvailabilityCaches(); 
   // When user switches tabs, trigger a fresh fetch
   document.getElementById('view-tab')?.addEventListener('shown.bs.tab', () => {
